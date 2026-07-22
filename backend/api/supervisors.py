@@ -8,7 +8,7 @@ from backend.schemas import SupervisorCreate, SupervisorResponse
 
 router = APIRouter(prefix="/api/supervisors", tags=["supervisors"])
 
-@router.post("", response_model=SupervisorResponse)
+@router.post("", response_model=SupervisorResponse, status_code=201)
 async def create_supervisor(sup: SupervisorCreate, db: AsyncSession = Depends(get_db)):
     db_sup = Supervisor(
         name=sup.name,

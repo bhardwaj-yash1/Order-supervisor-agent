@@ -52,6 +52,7 @@ class InstructionResponse(BaseModel):
 class RunResponse(BaseModel):
     id: str
     supervisor_id: str
+    supervisor_name: Optional[str] = None
     order_id: str
     order_context: Dict[str, Any]
     status: str
@@ -70,7 +71,7 @@ class RunDetailResponse(RunResponse):
 
 class EventInject(BaseModel):
     type: str
-    data: Dict[str, Any]
+    data: Dict[str, Any] = {}
 
 class InstructionAdd(BaseModel):
     instruction: str

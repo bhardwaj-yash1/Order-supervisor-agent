@@ -127,3 +127,43 @@ registry.register(
     },
     execute_fn=lambda summary: f"Workflow closing: {summary}"
 )
+
+registry.register(
+    name="message_fulfillment_team",
+    description="Send a message to the fulfillment team.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "message": {"type": "string", "description": "The message to send"}
+        },
+        "required": ["message"]
+    },
+    execute_fn=lambda message: f"Message sent to fulfillment team: {message}"
+)
+
+registry.register(
+    name="message_payments_team",
+    description="Send a message to the payments team.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "message": {"type": "string", "description": "The message to send"}
+        },
+        "required": ["message"]
+    },
+    execute_fn=lambda message: f"Message sent to payments team: {message}"
+)
+
+registry.register(
+    name="message_logistics_team",
+    description="Send a message to the logistics team.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "message": {"type": "string", "description": "The message to send"}
+        },
+        "required": ["message"]
+    },
+    execute_fn=lambda message: f"Message sent to logistics team: {message}"
+)
+

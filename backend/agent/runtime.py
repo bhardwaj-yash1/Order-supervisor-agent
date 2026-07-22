@@ -17,7 +17,9 @@ def run_agent(client, model: str, supervisor_config: dict, order_context: dict, 
                 {"role": "system", "content": sys_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
+            temperature=0.3,
+            max_tokens=2000
         )
         return json.loads(response.choices[0].message.content)
 
@@ -86,8 +88,12 @@ def run_agent(client, model: str, supervisor_config: dict, order_context: dict, 
     }
 
 def generate_final_summary(client, model: str, order_context: dict, memory_summary: str, full_timeline: list, extra_instructions: list) -> dict:
-    prompt = f"""Generate a final summary for this order workflow.
-Order Context: {json.dumps(order_context)}
+    prompt = f"""Generate a detailed final summary for this order workflow.
+Order Details:
+- Order ID: {order_context.get('order_id', 'N/A')}
+- Customer: {order_context.get('customer_name', 'N/A')}
+- Status: {order_context.get('status', 'N/A')}
+Order Context (Full): {json.dumps(order_context)}
 Memory Summary: {memory_summary}
 Extra Instructions: {json.dumps(extra_instructions)}
 Timeline: {json.dumps(full_timeline, indent=2)}
@@ -103,6 +109,8 @@ Return a JSON object:
     response = client.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": prompt}],
-        response_format={"type": "json_object"}
+        response_format={"type": "json_object"},
+        temperature=0.3,
+        max_tokens=2000
     )
     return json.loads(response.choices[0].message.content)

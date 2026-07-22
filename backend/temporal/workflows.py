@@ -27,12 +27,15 @@ class OrderSupervisorWorkflow:
 
     @workflow.signal
     async def on_event(self, event: dict):
-        decision = await workflow.execute_activity(
-            classify_event_activity,
-            args=[event["type"], event.get("data", {}), self.memory_summary, 
-                  self.supervisor_config.get("wakeup_aggressiveness", "medium")],
-            start_to_close_timeout=timedelta(seconds=30)
-        )
+        try:
+            decision = await workflow.execute_activity(
+                classify_event_activity,
+                args=[event["type"], event.get("data", {}), self.memory_summary, 
+                      self.supervisor_config.get("wakeup_aggressiveness", "medium")],
+                start_to_close_timeout=timedelta(seconds=30)
+            )
+        except Exception:
+            decision = {"should_wake": True}
         self.pending_events.append(event)
         if decision.get("should_wake", False):
             self.should_run_agent = True
@@ -102,6 +105,9 @@ class OrderSupervisorWorkflow:
                 await self._execute_agent(self.wake_reason or "scheduled_wakeup")
                 self.should_run_agent = False
                 self.wake_reason = None
+
+        if self.status == "terminated":
+            await self._execute_agent("terminate")
 
         # Generate final summary for both completed and terminated runs
         await workflow.execute_activity(

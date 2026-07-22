@@ -47,15 +47,23 @@ async def create_run(run_in: RunCreate, request: Request, db: AsyncSession = Dep
         id=workflow_id,
         task_queue=settings.TEMPORAL_TASK_QUEUE
     )
-    return db_run
+    
+    r = RunResponse.model_validate(db_run).model_dump()
+    r["supervisor_name"] = supervisor.name
+    return r
 
 @router.get("", response_model=List[RunResponse])
 async def list_runs(status: Optional[str] = None, db: AsyncSession = Depends(get_db)):
-    query = select(Run)
+    query = select(Run).options(selectinload(Run.supervisor))
     if status:
         query = query.where(Run.status == status)
     result = await db.execute(query)
-    return result.scalars().all()
+    runs_out = []
+    for run in result.scalars().all():
+        r = RunResponse.model_validate(run).model_dump()
+        r["supervisor_name"] = run.supervisor.name if run.supervisor else None
+        runs_out.append(r)
+    return runs_out
 
 @router.get("/{run_id}", response_model=RunDetailResponse)
 async def get_run(run_id: str, db: AsyncSession = Depends(get_db)):
@@ -63,13 +71,17 @@ async def get_run(run_id: str, db: AsyncSession = Depends(get_db)):
         select(Run).where(Run.id == run_id).options(
             selectinload(Run.timeline_entries),
             selectinload(Run.memory),
-            selectinload(Run.instructions)
+            selectinload(Run.instructions),
+            selectinload(Run.supervisor)
         )
     )
     run = result.scalars().first()
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
-    return run
+        
+    r = RunDetailResponse.model_validate(run).model_dump()
+    r["supervisor_name"] = run.supervisor.name if run.supervisor else None
+    return r
 
 @router.post("/{run_id}/instructions")
 async def add_instruction(run_id: str, instr: InstructionAdd, request: Request, db: AsyncSession = Depends(get_db)):
@@ -82,9 +94,13 @@ async def add_instruction(run_id: str, instr: InstructionAdd, request: Request, 
     db.add(db_instr)
     await db.commit()
     
-    client = request.app.state.temporal_client
-    handle = client.get_workflow_handle(run.workflow_id)
-    await handle.signal("on_instruction", instr.instruction)
+    try:
+        client = request.app.state.temporal_client
+        handle = client.get_workflow_handle(run.workflow_id)
+        await handle.signal("on_instruction", instr.instruction)
+    except Exception as e:
+        # Instruction is saved to DB even if workflow signal fails
+        return {"status": "saved_to_db", "warning": f"Workflow signal failed: {str(e)}"}
     return {"status": "ok"}
 
 @router.post("/{run_id}/pause")
@@ -94,9 +110,12 @@ async def pause_run(run_id: str, request: Request, db: AsyncSession = Depends(ge
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     
-    client = request.app.state.temporal_client
-    handle = client.get_workflow_handle(run.workflow_id)
-    await handle.signal("on_pause")
+    try:
+        client = request.app.state.temporal_client
+        handle = client.get_workflow_handle(run.workflow_id)
+        await handle.signal("on_pause")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to signal workflow: {str(e)}")
     
     run.status = "paused"
     await db.commit()
@@ -109,9 +128,12 @@ async def resume_run(run_id: str, request: Request, db: AsyncSession = Depends(g
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     
-    client = request.app.state.temporal_client
-    handle = client.get_workflow_handle(run.workflow_id)
-    await handle.signal("on_resume")
+    try:
+        client = request.app.state.temporal_client
+        handle = client.get_workflow_handle(run.workflow_id)
+        await handle.signal("on_resume")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to signal workflow: {str(e)}")
     
     run.status = "active"
     await db.commit()
@@ -124,10 +146,16 @@ async def terminate_run(run_id: str, request: Request, db: AsyncSession = Depend
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     
-    client = request.app.state.temporal_client
-    handle = client.get_workflow_handle(run.workflow_id)
-    await handle.signal("on_terminate")
+    try:
+        client = request.app.state.temporal_client
+        handle = client.get_workflow_handle(run.workflow_id)
+        await handle.signal("on_terminate")
+    except Exception as e:
+        # Still mark as terminated in DB even if workflow is gone
+        pass
     
     run.status = "terminated"
+    run.completed_at = __import__('datetime').datetime.utcnow()
     await db.commit()
     return {"status": "ok"}
+

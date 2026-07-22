@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     GROQ_CLASSIFIER_MODEL: str = "llama-3.1-8b-instant"
     TEMPORAL_ADDRESS: str = "localhost:7233"
     TEMPORAL_TASK_QUEUE: str = "order-supervisor"
+    # Note: Using SQLite for POC. For production, point DATABASE_URL to PostgreSQL.
     DATABASE_URL: str = "sqlite+aiosqlite:///./order_supervisor.db"
     
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")

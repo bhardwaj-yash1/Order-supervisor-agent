@@ -2,60 +2,62 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { getRuns, getSupervisors, createRun } from '@/lib/api';
+import { getSupervisors, getRuns, createRun } from '@/lib/api';
 
-const TABS = ['All', 'Active', 'Paused', 'Completed', 'Terminated'];
+function getStatusBadge(status: string) {
+  switch (status.toLowerCase()) {
+    case 'active': return <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-sm">active</span>;
+    case 'paused': return <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-sm">paused</span>;
+    case 'completed': return <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-sm">completed</span>;
+    case 'terminated': return <span className="px-2 py-1 bg-red-100 text-red-800 rounded text-sm">terminated</span>;
+    default: return <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-sm">{status}</span>;
+  }
+}
 
 export default function RunsPage() {
   const [runs, setRuns] = useState<any[]>([]);
   const [supervisors, setSupervisors] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('All');
-  
-  const [showModal, setShowModal] = useState(false);
-  const [creating, setCreating] = useState(false);
-  
-  // Form
+  const [error, setError] = useState('');
+  const [filter, setFilter] = useState('All');
+
+  // Form State
   const [supervisorId, setSupervisorId] = useState('');
   const [orderId, setOrderId] = useState('');
-  const [orderContext, setOrderContext] = useState('{\n  "customer_tier": "VIP",\n  "issue_type": "delayed_shipping"\n}');
-
-  async function loadData() {
-    try {
-      const [runsData, supsData] = await Promise.all([getRuns(), getSupervisors()]);
-      // Sort runs by created_at desc
-      runsData.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-      setRuns(runsData);
-      setSupervisors(supsData);
-      if (supsData.length > 0 && !supervisorId) {
-        setSupervisorId(supsData[0].id);
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  }
+  const [orderContext, setOrderContext] = useState('{\n  "items": [],\n  "total": 0\n}');
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     loadData();
   }, []);
 
-  const filteredRuns = activeTab === 'All' 
-    ? runs 
-    : runs.filter(r => r.status.toLowerCase() === activeTab.toLowerCase());
+  async function loadData() {
+    try {
+      setLoading(true);
+      const [sups, rs] = await Promise.all([
+        getSupervisors(),
+        getRuns()
+      ]);
+      setSupervisors(sups);
+      setRuns(rs);
+      if (sups.length > 0) setSupervisorId(sups[0].id);
+    } catch (e: any) {
+      setError(e.message || 'Failed to load data');
+    } finally {
+      setLoading(false);
+    }
+  }
 
-  const handleCreate = async (e: React.FormEvent) => {
+  const handleStartRun = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreating(true);
+    setError('');
     try {
       let parsedContext = {};
       try {
         parsedContext = JSON.parse(orderContext);
-      } catch (e) {
-        alert("Invalid JSON in Order Context");
-        setCreating(false);
-        return;
+      } catch {
+        throw new Error('Order Context must be valid JSON');
       }
 
       await createRun({
@@ -63,174 +65,109 @@ export default function RunsPage() {
         order_id: orderId,
         order_context: parsedContext
       });
-      setShowModal(false);
+      
       setOrderId('');
-      setOrderContext('{\n  "customer_tier": "VIP",\n  "issue_type": "delayed_shipping"\n}');
+      setOrderContext('{\n  "items": [],\n  "total": 0\n}');
       await loadData();
-    } catch (e) {
-      console.error(e);
-      alert("Failed to start run");
+    } catch (e: any) {
+      setError(e.message || 'Failed to start run');
     } finally {
       setCreating(false);
     }
   };
 
-  const getStatusStyle = (status: string) => {
-    switch(status) {
-      case 'active': return 'bg-green-500/10 text-green-400 border-green-500/20';
-      case 'paused': return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20';
-      case 'completed': return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
-      case 'terminated': return 'bg-red-500/10 text-red-400 border-red-500/20';
-      default: return 'bg-gray-500/10 text-gray-400 border-gray-500/20';
-    }
-  };
+  const filteredRuns = runs.filter(run => {
+    if (filter === 'All') return true;
+    return run.status.toLowerCase() === filter.toLowerCase();
+  });
+
+  const tabs = ['All', 'Active', 'Paused', 'Completed', 'Terminated'];
 
   return (
-    <div className="animate-in fade-in duration-500 relative min-h-full">
-      <div className="flex justify-between items-end mb-8">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-100">Runs</h1>
-          <p className="text-gray-400 mt-1">Active and historical agent workflows</p>
-        </div>
-        <button 
-          onClick={() => setShowModal(true)}
-          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg shadow-[0_0_15px_rgba(79,70,229,0.3)] transition-all flex items-center gap-2"
-        >
-          <span>🚀</span> Start New Run
-        </button>
+    <div>
+      <h1 className="text-2xl font-bold text-gray-900 mb-6">Runs</h1>
+      
+      {error && <div className="text-red-600 mb-4">{error}</div>}
+      
+      <div className="bg-white border border-gray-200 rounded-lg p-6 mb-8">
+        <h2 className="text-lg font-semibold text-gray-800 mb-4">Start New Run</h2>
+        <form onSubmit={handleStartRun} className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Supervisor</label>
+              <select required value={supervisorId} onChange={e => setSupervisorId(e.target.value)} className="w-full border border-gray-300 rounded-md p-2 text-gray-900 bg-white">
+                {supervisors.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Order ID</label>
+              <input type="text" required value={orderId} onChange={e => setOrderId(e.target.value)} className="w-full border border-gray-300 rounded-md p-2 text-gray-900" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Order Context (JSON)</label>
+            <textarea required rows={4} value={orderContext} onChange={e => setOrderContext(e.target.value)} className="w-full border border-gray-300 rounded-md p-2 text-gray-900 font-mono text-sm" />
+          </div>
+          <div className="pt-2">
+            <button type="submit" disabled={creating || supervisors.length === 0} className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50">
+              {creating ? 'Starting...' : 'Start Run'}
+            </button>
+          </div>
+        </form>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-2 mb-6 overflow-x-auto pb-2 scrollbar-hide">
-        {TABS.map(tab => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${
-              activeTab === tab 
-                ? 'bg-gray-800 text-white border border-gray-600 shadow-sm' 
-                : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/50 border border-transparent'
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
-
-      {/* List */}
-      <div className="grid gap-4">
-        {loading ? (
-          <div className="animate-pulse space-y-4">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="h-24 bg-gray-800/50 rounded-xl border border-gray-700/50"></div>
-            ))}
-          </div>
-        ) : filteredRuns.length === 0 ? (
-          <div className="p-12 text-center bg-gray-800/20 border border-gray-700/50 rounded-xl">
-            <div className="text-4xl mb-4">📭</div>
-            <h3 className="text-lg font-medium text-gray-300">No runs found</h3>
-            <p className="text-gray-500 text-sm mt-1">Try changing filters or start a new run.</p>
-          </div>
-        ) : (
-          filteredRuns.map(run => {
-            const sup = supervisors.find(s => s.id === run.supervisor_id);
-            return (
-              <Link 
-                key={run.id} 
-                href={`/runs/${run.id}`}
-                className="bg-gray-800/50 backdrop-blur p-4 rounded-xl border border-gray-700/50 hover:border-indigo-500/50 hover:bg-gray-800 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4 group"
+      <div className="bg-white border border-gray-200 rounded-lg">
+        <div className="border-b border-gray-200">
+          <nav className="flex space-x-4 px-4" aria-label="Tabs">
+            {tabs.map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setFilter(tab)}
+                className={`py-3 px-2 border-b-2 font-medium text-sm ${
+                  filter === tab
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
               >
-                <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-1">
-                    <span className="text-lg font-semibold text-gray-100">Order #{run.order_id}</span>
-                    <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full border ${getStatusStyle(run.status)}`}>
-                      {run.status.toUpperCase()}
-                    </span>
-                  </div>
-                  <div className="text-sm text-gray-400 flex items-center gap-4">
-                    <span className="flex items-center gap-1">
-                      <span>🤖</span> {sup ? sup.name : run.supervisor_id}
-                    </span>
-                    <span className="text-gray-600">•</span>
-                    <span>Created: {new Date(run.created_at).toLocaleString()}</span>
-                  </div>
-                </div>
-                <div className="text-gray-500 group-hover:text-indigo-400 transition-colors transform group-hover:translate-x-1 duration-200">
-                  ➔
-                </div>
-              </Link>
-            )
-          })
+                {tab}
+              </button>
+            ))}
+          </nav>
+        </div>
+        
+        {loading ? (
+          <div className="p-4 text-gray-500">Loading...</div>
+        ) : filteredRuns.length === 0 ? (
+          <div className="p-4 text-gray-500">No runs found.</div>
+        ) : (
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-gray-50 text-sm text-gray-600">
+                <th className="p-3 border-b border-gray-200 font-medium">Order ID</th>
+                <th className="p-3 border-b border-gray-200 font-medium">Supervisor</th>
+                <th className="p-3 border-b border-gray-200 font-medium">Status</th>
+                <th className="p-3 border-b border-gray-200 font-medium">Created</th>
+                <th className="p-3 border-b border-gray-200 font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredRuns.map((run) => (
+                <tr key={run.id} className="border-b border-gray-200 hover:bg-gray-50 transition-colors duration-150">
+                  <td className="p-3 text-gray-900">{run.order_id}</td>
+                  <td className="p-3 text-gray-600">{supervisors.find(s => s.id === run.supervisor_id)?.name || run.supervisor_id}</td>
+                  <td className="p-3">{getStatusBadge(run.status)}</td>
+                  <td className="p-3 text-gray-600 text-sm">{new Date(run.created_at).toLocaleString()}</td>
+                  <td className="p-3">
+                    <Link href={`/runs/${run.id}`} className="text-blue-600 hover:underline">View</Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
-
-      {/* Modal */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl scale-in-95 duration-200">
-            <div className="px-6 py-4 border-b border-gray-800 flex justify-between items-center bg-gray-800/30">
-              <h2 className="text-lg font-semibold text-gray-100">Start New Run</h2>
-              <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-white">✕</button>
-            </div>
-            
-            <form onSubmit={handleCreate} className="p-6 space-y-5">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Supervisor</label>
-                <select 
-                  required
-                  value={supervisorId}
-                  onChange={e => setSupervisorId(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 text-gray-100 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  {supervisors.map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                  {supervisors.length === 0 && <option value="" disabled>No supervisors available</option>}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Order ID</label>
-                <input 
-                  required
-                  type="text" 
-                  value={orderId}
-                  onChange={e => setOrderId(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 text-gray-100 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  placeholder="e.g. ORD-99321"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Order Context (JSON)</label>
-                <textarea 
-                  required
-                  value={orderContext}
-                  onChange={e => setOrderContext(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 text-gray-100 rounded-lg px-4 py-2.5 h-32 font-mono text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-
-              <div className="flex justify-end gap-3 pt-2">
-                <button 
-                  type="button" 
-                  onClick={() => setShowModal(false)}
-                  className="px-4 py-2 text-gray-300 hover:text-white transition-colors"
-                >
-                  Cancel
-                </button>
-                <button 
-                  type="submit" 
-                  disabled={creating || supervisors.length === 0}
-                  className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium rounded-lg shadow-lg transition-all"
-                >
-                  {creating ? 'Starting...' : 'Start Run'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

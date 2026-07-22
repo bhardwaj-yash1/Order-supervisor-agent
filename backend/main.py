@@ -1,6 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from backend.database import init_db
 from backend.temporal.worker import start_worker, get_temporal_client
@@ -22,6 +23,13 @@ async def lifespan(app: FastAPI):
         pass
 
 app = FastAPI(title="Order Supervisor API", lifespan=lifespan)
+
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal server error: {str(exc)}"}
+    )
 
 app.add_middleware(
     CORSMiddleware,

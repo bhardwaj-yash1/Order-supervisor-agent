@@ -8,8 +8,8 @@ from backend.agent.runtime import run_agent, generate_final_summary
 import json
 from datetime import datetime, timedelta
 
-# Create a sync OpenAI client
-openai_client = OpenAI(api_key=settings.GROQ_API_KEY, base_url=settings.GROQ_BASE_URL)
+# Create a sync OpenAI client (lazy-initialized or wrapped with dummy key)
+openai_client = OpenAI(api_key=settings.GROQ_API_KEY or "dummy_key", base_url=settings.GROQ_BASE_URL)
 
 @activity.defn
 def classify_event_activity(event_type: str, event_data: dict, memory_summary: str, aggressiveness: str) -> dict:
@@ -59,16 +59,6 @@ def run_agent_activity(context: dict) -> dict:
             available_tool_names=supervisor_config.get("available_tools", [])
         )
 
-        for e in result.get("timeline_entries", []):
-            entry = TimelineEntry(
-                run_id=run_id,
-                entry_type=e["entry_type"],
-                content=e["content"],
-                metadata_json=e["metadata"],
-                importance=e["importance"]
-            )
-            session.add(entry)
-        
         for pe in pending_events:
             entry = TimelineEntry(
                 run_id=run_id,
@@ -76,6 +66,16 @@ def run_agent_activity(context: dict) -> dict:
                 content=f"Processed event: {pe['type']}",
                 metadata_json=pe.get("data", {}),
                 importance=3
+            )
+            session.add(entry)
+
+        for e in result.get("timeline_entries", []):
+            entry = TimelineEntry(
+                run_id=run_id,
+                entry_type=e["entry_type"],
+                content=e["content"],
+                metadata_json=e["metadata"],
+                importance=e["importance"]
             )
             session.add(entry)
 
@@ -122,17 +122,21 @@ def generate_final_summary_activity(run_id: str, order_context: dict) -> dict:
             for e in all_entries
         ]
 
-        summary = generate_final_summary(
-            client=openai_client,
-            model=settings.GROQ_AGENT_MODEL,
-            order_context=order_context,
-            memory_summary=memory_summary_text,
-            full_timeline=full_timeline,
-            extra_instructions=[]
-        )
+        try:
+            summary = generate_final_summary(
+                client=openai_client,
+                model=settings.GROQ_AGENT_MODEL,
+                order_context=order_context,
+                memory_summary=memory_summary_text,
+                full_timeline=full_timeline,
+                extra_instructions=[]
+            )
+        except Exception as e:
+            summary = {"summary": f"Failed to generate summary: {str(e)}"}
 
         run.final_summary = summary
-        run.status = "completed"
+        if run.status != "terminated":
+            run.status = "completed"
         run.completed_at = datetime.utcnow()
         session.commit()
 

@@ -39,6 +39,11 @@ You must return a valid JSON object matching this schema:
     "memory_update": "Updated memory summary combining old memory and new events",
     "sleep_minutes": 240
 }}
+
+IMPORTANT:
+- `tool_calls` MUST be an array, even if empty ([]).
+- If the workflow is completely finished and no further actions are needed, use the `close_workflow` tool.
+- If you are waiting for more events or just resting, use the `schedule_wakeup` tool to sleep for a specified duration instead of closing.
 """
     user_prompt = f"""WAKE-UP TRIGGER: {trigger}
 

@@ -27,13 +27,22 @@ Return a JSON object:
     "reason": "explanation"
 }}"""
 
-    response = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        response_format={"type": "json_object"}
-    )
-    result = json.loads(response.choices[0].message.content)
-    return {
-        "should_wake": result.get("should_wake", False),
-        "reason": result.get("reason", "No reason provided")
-    }
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"}
+        )
+        result = json.loads(response.choices[0].message.content)
+        should_wake = result.get("should_wake")
+        if not isinstance(should_wake, bool):
+            should_wake = True
+        return {
+            "should_wake": should_wake,
+            "reason": result.get("reason", "No reason provided")
+        }
+    except Exception as e:
+        return {
+            "should_wake": True,
+            "reason": f"Error during classification: {str(e)}"
+        }

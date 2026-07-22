@@ -5,12 +5,12 @@ from sqlalchemy import create_engine
 from backend.config import settings
 
 # Async engine for FastAPI
-engine = create_async_engine(settings.DATABASE_URL, echo=False)
+engine = create_async_engine(settings.DATABASE_URL, echo=False, connect_args={"check_same_thread": False})
 async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 # Sync engine for Temporal activities
 sync_db_url = settings.DATABASE_URL.replace("sqlite+aiosqlite", "sqlite")
-sync_engine = create_engine(sync_db_url, echo=False)
+sync_engine = create_engine(sync_db_url, echo=False, connect_args={"check_same_thread": False})
 SyncSession = sessionmaker(sync_engine)
 
 class Base(DeclarativeBase):
@@ -24,5 +24,6 @@ def get_sync_session():
     return SyncSession()
 
 async def init_db():
+    from . import models
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

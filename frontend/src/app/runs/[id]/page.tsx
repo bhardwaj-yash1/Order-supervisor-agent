@@ -1,363 +1,306 @@
 'use client';
 
-import { useEffect, useState, useRef, use } from 'react';
-import { 
-  getRun, 
-  getSupervisor,
-  addInstruction, 
-  pauseRun, 
-  resumeRun, 
-  terminateRun, 
-  injectEvent 
-} from '@/lib/api';
+import { useEffect, useState, useRef } from 'react';
+import { useParams } from 'next/navigation';
+import { getRun, getSupervisor, pauseRun, resumeRun, terminateRun, injectEvent, addInstruction } from '@/lib/api';
 
-const EVENT_TYPES = [
-  'order_created', 'payment_confirmed', 'payment_failed', 
-  'shipment_created', 'shipment_delayed', 'delivered', 
-  'refund_requested', 'customer_message_received', 'no_update_for_n_hours'
-];
+function getStatusBadge(status: string) {
+  switch (status?.toLowerCase()) {
+    case 'active': return <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-sm font-medium">ACTIVE</span>;
+    case 'paused': return <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-sm font-medium">PAUSED</span>;
+    case 'completed': return <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-sm font-medium">COMPLETED</span>;
+    case 'terminated': return <span className="px-2 py-1 bg-red-100 text-red-800 rounded text-sm font-medium">TERMINATED</span>;
+    default: return <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-sm font-medium">{status?.toUpperCase() || ''}</span>;
+  }
+}
 
-export default function RunDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const resolvedParams = use(params);
-  const { id } = resolvedParams;
+function getTypeBadge(type: string) {
+  switch (type?.toUpperCase()) {
+    case 'EVENT': return <span className="px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded text-xs font-mono">EVENT</span>;
+    case 'THOUGHT': return <span className="px-1.5 py-0.5 bg-gray-200 text-gray-800 rounded text-xs font-mono">THOUGHT</span>;
+    case 'TOOL_CALL': return <span className="px-1.5 py-0.5 bg-orange-100 text-orange-800 rounded text-xs font-mono">TOOL_CALL</span>;
+    case 'SYSTEM': return <span className="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-xs font-mono">SYSTEM</span>;
+    default: return <span className="px-1.5 py-0.5 bg-gray-100 text-gray-800 rounded text-xs font-mono">{type}</span>;
+  }
+}
+
+export default function RunDetailsPage() {
+  const params = useParams();
+  const id = params.id as string;
   
   const [run, setRun] = useState<any>(null);
   const [supervisor, setSupervisor] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  
-  // Inputs
+  const [error, setError] = useState('');
+
+  const [eventType, setEventType] = useState('message_received');
+  const [eventData, setEventData] = useState('{\n  "message": "Hello"\n}');
+  const [injecting, setInjecting] = useState(false);
+  const [injectMsg, setInjectMsg] = useState('');
+
   const [newInstruction, setNewInstruction] = useState('');
-  const [eventType, setEventType] = useState(EVENT_TYPES[0]);
-  const [eventData, setEventData] = useState('{\n  \n}');
-  const [eventStatus, setEventStatus] = useState<{msg: string, isError: boolean} | null>(null);
+  const [addingInst, setAddingInst] = useState(false);
 
-  const timelineEndRef = useRef<HTMLDivElement>(null);
+  const timelineRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    
-    async function fetchDetails() {
-      try {
-        const runData = await getRun(id);
-        setRun(runData);
-        
-        if (!supervisor && runData.supervisor_id) {
-          const supData = await getSupervisor(runData.supervisor_id);
-          setSupervisor(supData);
-        }
-      } catch (e) {
-        console.error("Failed to fetch run details", e);
-      } finally {
-        setLoading(false);
+  const loadData = async () => {
+    try {
+      const runData = await getRun(id);
+      setRun(runData);
+      if (runData.supervisor_id && (!supervisor || supervisor.id !== runData.supervisor_id)) {
+        const supData = await getSupervisor(runData.supervisor_id).catch(() => null);
+        if (supData) setSupervisor(supData);
       }
+    } catch (e: any) {
+      setError(e.message || 'Failed to load run details');
+    } finally {
+      setLoading(false);
     }
-
-    fetchDetails();
-    interval = setInterval(fetchDetails, 3000);
-    return () => clearInterval(interval);
-  }, [id, supervisor]);
+  };
 
   useEffect(() => {
-    timelineEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [run?.timeline]);
+    loadData();
+    const interval = setInterval(() => {
+      setRun((currentRun: any) => {
+        if (currentRun && (currentRun.status === 'active' || currentRun.status === 'paused')) {
+          loadData();
+        }
+        return currentRun;
+      });
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [id]);
 
-  const handleAddInstruction = async () => {
+  useEffect(() => {
+    if (timelineRef.current) {
+      timelineRef.current.scrollTop = timelineRef.current.scrollHeight;
+    }
+  }, [run?.timeline?.length]);
+
+  if (loading && !run) {
+    return <div className="p-4 text-gray-500">Loading...</div>;
+  }
+
+  if (error || !run) {
+    return <div className="p-4 text-red-600">{error || 'Run not found'}</div>;
+  }
+
+  const handleAction = async (action: 'pause' | 'resume' | 'terminate') => {
+    try {
+      if (action === 'pause') await pauseRun(id);
+      if (action === 'resume') await resumeRun(id);
+      if (action === 'terminate') await terminateRun(id);
+      await loadData();
+    } catch (e: any) {
+      alert(e.message || `Failed to ${action} run`);
+    }
+  };
+
+  const handleInject = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setInjecting(true);
+    setInjectMsg('');
+    try {
+      let parsedData = {};
+      if (eventData.trim()) {
+        parsedData = JSON.parse(eventData);
+      }
+      await injectEvent(id, eventType, parsedData);
+      setInjectMsg('Event injected successfully');
+      setEventData('{}');
+      await loadData();
+    } catch (e: any) {
+      setInjectMsg(`Error: ${e.message || 'Invalid JSON'}`);
+    } finally {
+      setInjecting(false);
+      setTimeout(() => setInjectMsg(''), 3000);
+    }
+  };
+
+  const handleAddInstruction = async (e: React.FormEvent) => {
+    e.preventDefault();
     if (!newInstruction.trim()) return;
+    setAddingInst(true);
     try {
       await addInstruction(id, newInstruction);
       setNewInstruction('');
-      // Optimistic refresh
-      const runData = await getRun(id);
-      setRun(runData);
-    } catch (e) {
-      alert('Failed to add instruction');
+      await loadData();
+    } catch (e: any) {
+      alert(e.message || 'Failed to add instruction');
+    } finally {
+      setAddingInst(false);
     }
   };
 
-  const handleInjectEvent = async () => {
-    setEventStatus(null);
-    let parsedData = {};
-    try {
-      parsedData = JSON.parse(eventData);
-    } catch (e) {
-      setEventStatus({ msg: 'Invalid JSON', isError: true });
-      return;
-    }
-    
-    try {
-      await injectEvent(id, eventType, parsedData);
-      setEventStatus({ msg: 'Event injected successfully', isError: false });
-      setTimeout(() => setEventStatus(null), 3000);
-      setEventData('{\n  \n}');
-    } catch (e) {
-      setEventStatus({ msg: 'Failed to inject event', isError: true });
-    }
-  };
-
-  const getStatusStyle = (status: string) => {
-    switch(status) {
-      case 'active': return 'bg-green-500/10 text-green-400 border-green-500/20';
-      case 'paused': return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20';
-      case 'completed': return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
-      case 'terminated': return 'bg-red-500/10 text-red-400 border-red-500/20';
-      default: return 'bg-gray-500/10 text-gray-400 border-gray-500/20';
-    }
-  };
-
-  const getTimelineIcon = (type: string) => {
-    switch(type) {
-      case 'event': return { icon: '📦', color: 'bg-blue-500/20 text-blue-400' };
-      case 'thought': return { icon: '🧠', color: 'bg-purple-500/20 text-purple-400' };
-      case 'tool_call': return { icon: '🔧', color: 'bg-orange-500/20 text-orange-400' };
-      case 'system': return { icon: '⚙️', color: 'bg-gray-500/20 text-gray-400' };
-      default: return { icon: '•', color: 'bg-gray-700 text-gray-300' };
-    }
-  };
-
-  if (loading) {
-    return <div className="animate-pulse p-8 space-y-4">
-      <div className="h-12 bg-gray-800/50 rounded w-1/3"></div>
-      <div className="h-96 bg-gray-800/50 rounded"></div>
-    </div>;
-  }
-
-  if (!run) {
-    return <div className="p-8 text-center text-red-400">Run not found</div>;
-  }
-
-  const isSleep = run.wake_time && new Date(run.wake_time).getTime() > Date.now();
   const isActiveOrPaused = run.status === 'active' || run.status === 'paused';
+  const isCompletedOrTerminated = run.status === 'completed' || run.status === 'terminated';
 
   return (
-    <div className="animate-in fade-in duration-500 h-full flex flex-col gap-6">
-      {/* Header */}
-      <div className="bg-gray-800/50 backdrop-blur p-6 rounded-xl border border-gray-700/50 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg shrink-0">
-        <div>
-          <div className="flex items-center gap-3 mb-2">
-            <h1 className="text-2xl font-bold text-gray-100">Order #{run.order_id}</h1>
-            <span className={`px-3 py-1 text-xs font-semibold rounded-full border ${getStatusStyle(run.status)}`}>
-              {run.status.toUpperCase()}
-            </span>
+    <div className="space-y-6">
+      <div className="bg-white border border-gray-200 rounded-lg p-6">
+        <div className="flex justify-between items-start">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 flex items-center space-x-3">
+              <span>Run: {run.order_id}</span>
+              {getStatusBadge(run.status)}
+            </h1>
+            <p className="text-gray-600 mt-2">Supervisor: {supervisor ? supervisor.name : run.supervisor_id}</p>
+            <p className="text-gray-500 text-sm">Created: {new Date(run.created_at).toLocaleString()}</p>
           </div>
-          <p className="text-sm text-gray-400 flex items-center gap-2">
-            <span>🤖 {supervisor?.name || run.supervisor_id}</span>
-            <span className="text-gray-600">•</span>
-            <span>Started {new Date(run.created_at).toLocaleString()}</span>
-          </p>
-        </div>
-        
-        {/* Sleep Status */}
-        <div className="flex items-center gap-3 bg-gray-900/50 px-4 py-2 rounded-lg border border-gray-700/50">
-          {isSleep ? (
-            <>
-              <span className="text-xl animate-pulse">💤</span>
-              <div>
-                <div className="text-sm font-medium text-blue-400">Sleeping</div>
-                <div className="text-xs text-gray-500">until {new Date(run.wake_time).toLocaleTimeString()}</div>
-              </div>
-            </>
-          ) : run.status === 'active' ? (
-            <>
-              <span className="text-xl text-green-400 animate-spin-slow">👁️</span>
-              <div className="text-sm font-medium text-green-400">Awake & Processing</div>
-            </>
-          ) : (
-            <div className="text-sm font-medium text-gray-500 px-2">Inactive</div>
+          {run.sleeping_until && new Date(run.sleeping_until) > new Date() && (
+            <div className="bg-gray-100 border border-gray-200 px-3 py-2 rounded text-sm text-gray-700">
+              Sleeping until: {new Date(run.sleeping_until).toLocaleTimeString()}
+            </div>
           )}
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 overflow-hidden min-h-[600px]">
-        
-        {/* Left Col: Timeline */}
-        <div className="lg:col-span-2 bg-gray-800/30 backdrop-blur rounded-xl border border-gray-700/50 flex flex-col overflow-hidden">
-          <div className="p-4 border-b border-gray-700/50 bg-gray-800/50 flex justify-between items-center">
-            <h2 className="font-semibold text-gray-200">Activity Timeline</h2>
-            <span className="text-xs text-gray-500">{run.timeline?.length || 0} entries</span>
-          </div>
-          
-          <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin scrollbar-thumb-gray-700">
-            {(!run.timeline || run.timeline.length === 0) ? (
-              <div className="h-full flex items-center justify-center text-gray-500">
-                Waiting for first agent run...
-              </div>
-            ) : (
-              run.timeline.map((entry: any, i: number) => {
-                const style = getTimelineIcon(entry.type);
-                return (
-                  <div key={i} className="flex gap-4 group">
-                    <div className="shrink-0 flex flex-col items-center">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg ${style.color} shadow-lg ring-4 ring-gray-950`}>
-                        {style.icon}
-                      </div>
-                      {i !== run.timeline.length - 1 && (
-                        <div className="w-px h-full bg-gray-700/50 my-1 group-hover:bg-gray-600 transition-colors"></div>
-                      )}
-                    </div>
-                    <div className="pb-6 pt-1 flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-sm font-semibold capitalize text-gray-300">{entry.type.replace('_', ' ')}</span>
-                        <span className="text-xs text-gray-500">{new Date(entry.timestamp).toLocaleTimeString()}</span>
-                      </div>
-                      <div className="bg-gray-900/60 p-4 rounded-xl rounded-tl-none border border-gray-700/50 text-sm text-gray-300 whitespace-pre-wrap font-mono leading-relaxed">
-                        {typeof entry.content === 'object' ? JSON.stringify(entry.content, null, 2) : entry.content}
-                      </div>
-                    </div>
-                  </div>
-                )
-              })
-            )}
-            <div ref={timelineEndRef} />
+      <div className="flex flex-col lg:flex-row gap-6">
+        {/* Left Column */}
+        <div className="w-full lg:w-[60%] space-y-6">
+          <div className="bg-white border border-gray-200 rounded-lg flex flex-col h-[500px]">
+            <div className="p-4 border-b border-gray-200 font-semibold text-gray-800 flex justify-between items-center">
+              <span>Timeline</span>
+              <span className="text-sm font-normal text-gray-500">{run.timeline?.length || 0} entries</span>
+            </div>
+            <div ref={timelineRef} className="flex-1 overflow-y-auto p-4 space-y-2 bg-gray-50 font-mono text-sm">
+              {run.timeline?.map((entry: any, i: number) => (
+                <div key={i} className="flex space-x-3 text-gray-800">
+                  <span className="text-gray-500 shrink-0">[{new Date(entry.timestamp).toLocaleTimeString()}]</span>
+                  <span className="shrink-0">{getTypeBadge(entry.type)}</span>
+                  <span className="break-all whitespace-pre-wrap">{entry.content}</span>
+                </div>
+              ))}
+              {(!run.timeline || run.timeline.length === 0) && (
+                <div className="text-gray-400">No timeline entries yet.</div>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Right Col: Panels */}
-        <div className="space-y-6 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-gray-700">
+        {/* Right Column */}
+        <div className="w-full lg:w-[40%] space-y-6">
           
-          {/* Controls */}
-          {isActiveOrPaused && (
-            <div className="bg-gray-800/50 backdrop-blur rounded-xl border border-gray-700/50 p-5">
-              <h3 className="font-semibold text-gray-200 mb-4">Run Controls</h3>
-              <div className="flex gap-3">
-                {run.status === 'active' ? (
-                  <button onClick={() => pauseRun(id)} className="flex-1 py-2 bg-yellow-600/20 hover:bg-yellow-600/30 text-yellow-500 border border-yellow-600/50 rounded-lg transition-colors text-sm font-medium">
-                    Pause
-                  </button>
-                ) : (
-                  <button onClick={() => resumeRun(id)} className="flex-1 py-2 bg-green-600/20 hover:bg-green-600/30 text-green-500 border border-green-600/50 rounded-lg transition-colors text-sm font-medium">
-                    Resume
-                  </button>
-                )}
-                <button 
-                  onClick={() => {
-                    if (confirm("Are you sure you want to terminate this run?")) terminateRun(id);
-                  }} 
-                  className="flex-1 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-500 border border-red-600/50 rounded-lg transition-colors text-sm font-medium"
-                >
-                  Terminate
+          <div className="bg-white border border-gray-200 rounded-lg">
+            <div className="p-4 border-b border-gray-200 font-semibold text-gray-800">Memory Summary</div>
+            <div className="p-4 text-sm text-gray-700 space-y-4">
+              {run.memory?.summary ? (
+                <>
+                  <p>{run.memory.summary}</p>
+                  {run.memory.facts && run.memory.facts.length > 0 && (
+                    <ul className="list-disc pl-5 space-y-1">
+                      {run.memory.facts.map((fact: string, i: number) => (
+                        <li key={i}>{fact}</li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              ) : (
+                <p className="text-gray-500">No memory recorded yet.</p>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-lg">
+            <div className="p-4 border-b border-gray-200 font-semibold text-gray-800">Inject Event</div>
+            <div className="p-4">
+              <form onSubmit={handleInject} className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Event Type</label>
+                  <select value={eventType} onChange={e => {
+                    setEventType(e.target.value);
+                    if (e.target.value === 'message_received') setEventData('{\n  "message": ""\n}');
+                    else setEventData('{}');
+                  }} className="w-full border border-gray-300 rounded-md p-2 text-sm">
+                    <option value="message_received">Message Received</option>
+                    <option value="status_update">Status Update</option>
+                    <option value="user_action">User Action</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Event Data (JSON)</label>
+                  <textarea rows={3} value={eventData} onChange={e => setEventData(e.target.value)} className="w-full border border-gray-300 rounded-md p-2 text-sm font-mono" />
+                </div>
+                <button type="submit" disabled={injecting} className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm hover:bg-blue-700 disabled:opacity-50">
+                  {injecting ? 'Sending...' : 'Send Event'}
                 </button>
+                {injectMsg && <div className={`text-sm ${injectMsg.startsWith('Error') ? 'text-red-600' : 'text-green-600'}`}>{injectMsg}</div>}
+              </form>
+            </div>
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-lg">
+            <div className="p-4 border-b border-gray-200 font-semibold text-gray-800">Add Instruction</div>
+            <div className="p-4">
+              <form onSubmit={handleAddInstruction} className="space-y-3">
+                <input type="text" required value={newInstruction} onChange={e => setNewInstruction(e.target.value)} placeholder="New instruction..." className="w-full border border-gray-300 rounded-md p-2 text-sm" />
+                <button type="submit" disabled={addingInst} className="bg-gray-800 text-white px-3 py-1.5 rounded text-sm hover:bg-gray-900 disabled:opacity-50">
+                  {addingInst ? 'Adding...' : 'Add'}
+                </button>
+              </form>
+              {run.instructions && run.instructions.length > 0 && (
+                <div className="mt-4 border-t border-gray-100 pt-3">
+                  <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Existing Instructions</h4>
+                  <ul className="space-y-2 text-sm text-gray-700">
+                    {run.instructions.map((inst: string, i: number) => (
+                      <li key={i} className="bg-gray-50 p-2 rounded border border-gray-100">{inst}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {isActiveOrPaused && (
+            <div className="bg-white border border-gray-200 rounded-lg">
+              <div className="p-4 border-b border-gray-200 font-semibold text-gray-800">Run Controls</div>
+              <div className="p-4 flex space-x-3">
+                {run.status === 'active' && (
+                  <button onClick={() => handleAction('pause')} className="bg-yellow-500 text-white px-4 py-2 rounded text-sm hover:bg-yellow-600">Pause</button>
+                )}
+                {run.status === 'paused' && (
+                  <button onClick={() => handleAction('resume')} className="bg-green-600 text-white px-4 py-2 rounded text-sm hover:bg-green-700">Resume</button>
+                )}
+                <button onClick={() => handleAction('terminate')} className="bg-red-600 text-white px-4 py-2 rounded text-sm hover:bg-red-700">Terminate</button>
               </div>
             </div>
           )}
 
-          {/* Final Summary */}
-          {(run.status === 'completed' || run.status === 'terminated') && run.final_summary && (
-            <div className="bg-gray-800/50 backdrop-blur rounded-xl border border-blue-500/30 p-5 shadow-[0_0_15px_rgba(59,130,246,0.1)]">
-              <h3 className="font-semibold text-blue-400 mb-4 flex items-center gap-2"><span>📋</span> Final Summary</h3>
-              <div className="space-y-4 text-sm text-gray-300">
-                <p className="leading-relaxed bg-gray-900/50 p-3 rounded">{run.final_summary.summary}</p>
+          {isCompletedOrTerminated && run.final_summary && (
+            <div className="bg-white border border-gray-200 rounded-lg">
+              <div className="p-4 border-b border-gray-200 font-semibold text-gray-800">Final Summary</div>
+              <div className="p-4 text-sm text-gray-700 space-y-4">
+                <p>{run.final_summary.summary}</p>
                 
                 {run.final_summary.actions_taken?.length > 0 && (
                   <div>
-                    <h4 className="text-gray-200 font-medium mb-2">Actions Taken</h4>
-                    <ul className="list-disc pl-5 space-y-1 text-gray-400">
-                      {run.final_summary.actions_taken.map((a: string, i: number) => <li key={i}>{a}</li>)}
+                    <h4 className="font-semibold mb-1">Actions Taken</h4>
+                    <ul className="list-disc pl-5 space-y-1">
+                      {run.final_summary.actions_taken.map((item: string, i: number) => <li key={i}>{item}</li>)}
                     </ul>
                   </div>
                 )}
                 
                 {run.final_summary.key_learnings?.length > 0 && (
                   <div>
-                    <h4 className="text-gray-200 font-medium mb-2">Key Learnings</h4>
-                    <ul className="list-disc pl-5 space-y-1 text-gray-400">
-                      {run.final_summary.key_learnings.map((a: string, i: number) => <li key={i}>{a}</li>)}
+                    <h4 className="font-semibold mb-1">Key Learnings</h4>
+                    <ul className="list-disc pl-5 space-y-1">
+                      {run.final_summary.key_learnings.map((item: string, i: number) => <li key={i}>{item}</li>)}
+                    </ul>
+                  </div>
+                )}
+                
+                {run.final_summary.recommendations?.length > 0 && (
+                  <div>
+                    <h4 className="font-semibold mb-1">Recommendations</h4>
+                    <ul className="list-disc pl-5 space-y-1">
+                      {run.final_summary.recommendations.map((item: string, i: number) => <li key={i}>{item}</li>)}
                     </ul>
                   </div>
                 )}
               </div>
             </div>
           )}
-
-          {/* Memory Panel */}
-          <div className="bg-gray-800/50 backdrop-blur rounded-xl border border-gray-700/50 p-5">
-            <h3 className="font-semibold text-gray-200 mb-4 flex items-center gap-2"><span>📝</span> Memory</h3>
-            {run.memory ? (
-              <div className="space-y-4">
-                <p className="text-sm text-gray-300 leading-relaxed">{run.memory.summary}</p>
-                {run.memory.key_facts?.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {run.memory.key_facts.map((fact: string, i: number) => (
-                      <span key={i} className="px-2 py-1 bg-gray-700/50 text-xs text-gray-300 rounded border border-gray-600">
-                        {fact}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <p className="text-sm text-gray-500 italic">No memory yet</p>
-            )}
-          </div>
-
-          {/* Inject Event Panel */}
-          <div className="bg-gray-800/50 backdrop-blur rounded-xl border border-gray-700/50 p-5">
-            <h3 className="font-semibold text-gray-200 mb-4 flex items-center gap-2"><span>🔌</span> Inject Event</h3>
-            <div className="space-y-3">
-              <select 
-                value={eventType}
-                onChange={e => setEventType(e.target.value)}
-                className="w-full bg-gray-900 border border-gray-700 text-sm text-gray-200 rounded px-3 py-2 outline-none focus:border-indigo-500"
-              >
-                {EVENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-              <textarea 
-                value={eventData}
-                onChange={e => setEventData(e.target.value)}
-                className="w-full bg-gray-900 border border-gray-700 text-xs font-mono text-gray-300 rounded px-3 py-2 h-24 resize-none outline-none focus:border-indigo-500"
-                placeholder="JSON data (optional)"
-              />
-              <button 
-                onClick={handleInjectEvent}
-                className="w-full py-2 bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-400 border border-indigo-600/50 rounded-lg transition-colors text-sm font-medium"
-              >
-                Send Event
-              </button>
-              {eventStatus && (
-                <div className={`text-xs p-2 rounded ${eventStatus.isError ? 'bg-red-500/10 text-red-400' : 'bg-green-500/10 text-green-400'}`}>
-                  {eventStatus.msg}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Extra Instructions */}
-          <div className="bg-gray-800/50 backdrop-blur rounded-xl border border-gray-700/50 p-5">
-            <h3 className="font-semibold text-gray-200 mb-4 flex items-center gap-2"><span>✍️</span> Added Instructions</h3>
-            
-            <div className="space-y-4 mb-4">
-              {(!run.extra_instructions || run.extra_instructions.length === 0) ? (
-                <p className="text-sm text-gray-500 italic">No extra instructions.</p>
-              ) : (
-                <ul className="space-y-3">
-                  {run.extra_instructions.map((inst: any, i: number) => (
-                    <li key={i} className="bg-gray-900/50 p-3 rounded border border-gray-700/50 text-sm">
-                      <p className="text-gray-300">{inst.instruction}</p>
-                      <span className="text-xs text-gray-500 mt-2 block">{new Date(inst.timestamp).toLocaleString()}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            <div className="flex gap-2">
-              <input 
-                type="text" 
-                value={newInstruction}
-                onChange={e => setNewInstruction(e.target.value)}
-                placeholder="Add new instruction..."
-                className="flex-1 bg-gray-900 border border-gray-700 text-sm text-gray-200 rounded px-3 py-2 outline-none focus:border-indigo-500"
-                onKeyDown={e => e.key === 'Enter' && handleAddInstruction()}
-              />
-              <button 
-                onClick={handleAddInstruction}
-                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded text-sm transition-colors"
-              >
-                Add
-              </button>
-            </div>
-          </div>
-
         </div>
       </div>
     </div>

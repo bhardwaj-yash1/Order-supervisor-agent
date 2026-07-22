@@ -14,8 +14,14 @@ async def inject_event(run_id: str, event: EventInject, request: Request, db: As
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     
-    client = request.app.state.temporal_client
-    handle = client.get_workflow_handle(run.workflow_id)
-    await handle.signal("on_event", {"type": event.type, "data": event.data})
+    if run.status not in ("active", "paused"):
+        raise HTTPException(status_code=400, detail=f"Run is {run.status}, cannot inject events")
+    
+    try:
+        client = request.app.state.temporal_client
+        handle = client.get_workflow_handle(run.workflow_id)
+        await handle.signal("on_event", {"type": event.type, "data": event.data})
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to signal workflow: {str(e)}")
     
     return {"status": "ok"}
