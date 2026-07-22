@@ -10,6 +10,8 @@ from backend.temporal.activities import (
     persist_run_status_activity
 )
 
+import concurrent.futures
+
 async def start_worker():
     client = await Client.connect(settings.TEMPORAL_ADDRESS)
     worker = Worker(
@@ -21,7 +23,8 @@ async def start_worker():
             run_agent_activity,
             generate_final_summary_activity,
             persist_run_status_activity
-        ]
+        ],
+        activity_executor=concurrent.futures.ThreadPoolExecutor(10)
     )
     await worker.run()
 

@@ -8,7 +8,14 @@ export async function fetchAPI(path: string, options?: RequestInit) {
       ...options?.headers,
     },
   });
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  if (!res.ok) {
+    let msg = `API error: ${res.status}`;
+    try {
+      const errData = await res.json();
+      if (errData.detail) msg += ` - ${JSON.stringify(errData.detail)}`;
+    } catch (e) {}
+    throw new Error(msg);
+  }
   return res.json();
 }
 

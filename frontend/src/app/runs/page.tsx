@@ -2,164 +2,160 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { getSupervisors, getRuns, createRun } from '@/lib/api';
+import { getRuns, getSupervisors, createRun } from '@/lib/api';
 
-function getStatusBadge(status: string) {
-  switch (status.toLowerCase()) {
-    case 'active': return <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-sm">active</span>;
-    case 'paused': return <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-sm">paused</span>;
-    case 'completed': return <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-sm">completed</span>;
-    case 'terminated': return <span className="px-2 py-1 bg-red-100 text-red-800 rounded text-sm">terminated</span>;
-    default: return <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-sm">{status}</span>;
-  }
-}
+const TABS = ['all', 'active', 'paused', 'completed', 'terminated'];
+
+const ORDER_CONTEXT_TEMPLATE = JSON.stringify({
+  customer_name: "John Smith",
+  customer_email: "john@example.com",
+  items: [
+    { name: "Wireless Headphones", qty: 1, price: 89.99 }
+  ],
+  total: 89.99,
+  shipping_address: "123 Main St, New York, NY"
+}, null, 2);
 
 export default function RunsPage() {
   const [runs, setRuns] = useState<any[]>([]);
   const [supervisors, setSupervisors] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState('all');
   const [error, setError] = useState('');
-  const [filter, setFilter] = useState('All');
+  const [success, setSuccess] = useState('');
 
-  // Form State
   const [supervisorId, setSupervisorId] = useState('');
   const [orderId, setOrderId] = useState('');
-  const [orderContext, setOrderContext] = useState('{\n  "items": [],\n  "total": 0\n}');
-  const [creating, setCreating] = useState(false);
+  const [orderContext, setOrderContext] = useState(ORDER_CONTEXT_TEMPLATE);
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  async function loadData() {
+  async function load() {
     try {
-      setLoading(true);
-      const [sups, rs] = await Promise.all([
-        getSupervisors(),
-        getRuns()
-      ]);
-      setSupervisors(sups);
-      setRuns(rs);
-      if (sups.length > 0) setSupervisorId(sups[0].id);
-    } catch (e: any) {
-      setError(e.message || 'Failed to load data');
-    } finally {
-      setLoading(false);
+      const [r, s] = await Promise.all([getRuns(), getSupervisors()]);
+      setRuns(r);
+      setSupervisors(s);
+      if (s.length > 0 && !supervisorId) setSupervisorId(s[0].id);
+    } catch { }
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); }, []);
+
+  const filtered = tab === 'all' ? runs : runs.filter((r: any) => r.status === tab);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+    if (!supervisorId || !orderId.trim()) {
+      setError('Supervisor and Order ID are required.');
+      return;
+    }
+    try {
+      const ctx = JSON.parse(orderContext);
+      await createRun({ supervisor_id: supervisorId, order_id: orderId.trim(), order_context: ctx });
+      setSuccess('Run started.');
+      setOrderId('');
+      load();
+    } catch (err: any) {
+      setError(err.message || 'Failed to start run.');
     }
   }
 
-  const handleStartRun = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setCreating(true);
-    setError('');
-    try {
-      let parsedContext = {};
-      try {
-        parsedContext = JSON.parse(orderContext);
-      } catch {
-        throw new Error('Order Context must be valid JSON');
-      }
-
-      await createRun({
-        supervisor_id: supervisorId,
-        order_id: orderId,
-        order_context: parsedContext
-      });
-      
-      setOrderId('');
-      setOrderContext('{\n  "items": [],\n  "total": 0\n}');
-      await loadData();
-    } catch (e: any) {
-      setError(e.message || 'Failed to start run');
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  const filteredRuns = runs.filter(run => {
-    if (filter === 'All') return true;
-    return run.status.toLowerCase() === filter.toLowerCase();
-  });
-
-  const tabs = ['All', 'Active', 'Paused', 'Completed', 'Terminated'];
-
   return (
     <div>
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Runs</h1>
-      
-      {error && <div className="text-red-600 mb-4">{error}</div>}
-      
-      <div className="bg-white border border-gray-200 rounded-lg p-6 mb-8">
-        <h2 className="text-lg font-semibold text-gray-800 mb-4">Start New Run</h2>
-        <form onSubmit={handleStartRun} className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <h1 className="text-2xl font-semibold text-gray-900 mb-6">Runs</h1>
+
+      {/* Start New Run */}
+      <div className="bg-white border border-gray-200 rounded-lg p-6 mb-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">Start New Run</h2>
+
+        {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
+        {success && <p className="text-sm text-green-600 mb-3">{success}</p>}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Supervisor</label>
-              <select required value={supervisorId} onChange={e => setSupervisorId(e.target.value)} className="w-full border border-gray-300 rounded-md p-2 text-gray-900 bg-white">
-                {supervisors.map(s => (
+              <select
+                value={supervisorId}
+                onChange={e => setSupervisorId(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {supervisors.length === 0 && <option value="">No supervisors — create one first</option>}
+                {supervisors.map((s: any) => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
               </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Order ID</label>
-              <input type="text" required value={orderId} onChange={e => setOrderId(e.target.value)} className="w-full border border-gray-300 rounded-md p-2 text-gray-900" />
+              <input
+                type="text"
+                value={orderId}
+                onChange={e => setOrderId(e.target.value)}
+                placeholder="ORD-1234"
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
             </div>
           </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Order Context (JSON)</label>
-            <textarea required rows={4} value={orderContext} onChange={e => setOrderContext(e.target.value)} className="w-full border border-gray-300 rounded-md p-2 text-gray-900 font-mono text-sm" />
+            <textarea
+              value={orderContext}
+              onChange={e => setOrderContext(e.target.value)}
+              rows={6}
+              className="w-full px-3 py-2 text-sm font-mono border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
           </div>
-          <div className="pt-2">
-            <button type="submit" disabled={creating || supervisors.length === 0} className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50">
-              {creating ? 'Starting...' : 'Start Run'}
-            </button>
-          </div>
+
+          <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700">
+            Start Run
+          </button>
         </form>
       </div>
 
+      {/* Runs Table */}
       <div className="bg-white border border-gray-200 rounded-lg">
-        <div className="border-b border-gray-200">
-          <nav className="flex space-x-4 px-4" aria-label="Tabs">
-            {tabs.map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setFilter(tab)}
-                className={`py-3 px-2 border-b-2 font-medium text-sm ${
-                  filter === tab
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                {tab}
-              </button>
-            ))}
-          </nav>
+        <div className="px-5 py-3 border-b border-gray-200 flex items-center gap-4">
+          {TABS.map(t => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`text-sm font-medium pb-1 ${
+                tab === t
+                  ? 'text-blue-600 border-b-2 border-blue-600'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {t.charAt(0).toUpperCase() + t.slice(1)}
+            </button>
+          ))}
         </div>
-        
+
         {loading ? (
-          <div className="p-4 text-gray-500">Loading...</div>
-        ) : filteredRuns.length === 0 ? (
-          <div className="p-4 text-gray-500">No runs found.</div>
+          <p className="px-5 py-6 text-sm text-gray-500">Loading...</p>
+        ) : filtered.length === 0 ? (
+          <p className="px-5 py-6 text-sm text-gray-500">No runs found.</p>
         ) : (
-          <table className="w-full text-left border-collapse">
+          <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-50 text-sm text-gray-600">
-                <th className="p-3 border-b border-gray-200 font-medium">Order ID</th>
-                <th className="p-3 border-b border-gray-200 font-medium">Supervisor</th>
-                <th className="p-3 border-b border-gray-200 font-medium">Status</th>
-                <th className="p-3 border-b border-gray-200 font-medium">Created</th>
-                <th className="p-3 border-b border-gray-200 font-medium">Actions</th>
+              <tr className="text-left text-gray-500 border-b border-gray-100">
+                <th className="px-5 py-3 font-medium">Order ID</th>
+                <th className="px-5 py-3 font-medium">Status</th>
+                <th className="px-5 py-3 font-medium">Created</th>
+                <th className="px-5 py-3 font-medium"></th>
               </tr>
             </thead>
             <tbody>
-              {filteredRuns.map((run) => (
-                <tr key={run.id} className="border-b border-gray-200 hover:bg-gray-50 transition-colors duration-150">
-                  <td className="p-3 text-gray-900">{run.order_id}</td>
-                  <td className="p-3 text-gray-600">{supervisors.find(s => s.id === run.supervisor_id)?.name || run.supervisor_id}</td>
-                  <td className="p-3">{getStatusBadge(run.status)}</td>
-                  <td className="p-3 text-gray-600 text-sm">{new Date(run.created_at).toLocaleString()}</td>
-                  <td className="p-3">
+              {filtered.map((run: any) => (
+                <tr key={run.id} className="border-b border-gray-50 hover:bg-gray-50">
+                  <td className="px-5 py-3 font-medium text-gray-900">{run.order_id}</td>
+                  <td className="px-5 py-3">
+                    <StatusBadge status={run.status} />
+                  </td>
+                  <td className="px-5 py-3 text-gray-500">{new Date(run.created_at).toLocaleString()}</td>
+                  <td className="px-5 py-3">
                     <Link href={`/runs/${run.id}`} className="text-blue-600 hover:underline">View</Link>
                   </td>
                 </tr>
@@ -169,5 +165,19 @@ export default function RunsPage() {
         )}
       </div>
     </div>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const colors: Record<string, string> = {
+    active: 'bg-green-50 text-green-700',
+    paused: 'bg-yellow-50 text-yellow-700',
+    completed: 'bg-blue-50 text-blue-700',
+    terminated: 'bg-red-50 text-red-700',
+  };
+  return (
+    <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded-full ${colors[status] || 'bg-gray-100 text-gray-600'}`}>
+      {status}
+    </span>
   );
 }

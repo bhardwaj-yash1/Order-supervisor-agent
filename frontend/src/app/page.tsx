@@ -4,100 +4,75 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getSupervisors, getRuns } from '@/lib/api';
 
-function getStatusBadge(status: string) {
-  switch (status.toLowerCase()) {
-    case 'active': return <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-sm">active</span>;
-    case 'paused': return <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-sm">paused</span>;
-    case 'completed': return <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-sm">completed</span>;
-    case 'terminated': return <span className="px-2 py-1 bg-red-100 text-red-800 rounded text-sm">terminated</span>;
-    default: return <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-sm">{status}</span>;
-  }
-}
-
-export default function Dashboard() {
-  const [stats, setStats] = useState({ totalSupervisors: 0, activeRuns: 0, completedRuns: 0 });
-  const [recentRuns, setRecentRuns] = useState<any[]>([]);
+export default function DashboardPage() {
+  const [supervisors, setSupervisors] = useState<any[]>([]);
+  const [runs, setRuns] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
 
   useEffect(() => {
-    async function loadDashboard() {
-      try {
-        const [supervisors, runs] = await Promise.all([
-          getSupervisors(),
-          getRuns()
-        ]);
-        
-        const activeRuns = runs.filter((r: any) => r.status === 'active' || r.status === 'paused').length;
-        const completedRuns = runs.filter((r: any) => r.status === 'completed' || r.status === 'terminated').length;
-
-        setStats({
-          totalSupervisors: supervisors.length,
-          activeRuns,
-          completedRuns
-        });
-
-        const sorted = [...runs].sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-        setRecentRuns(sorted.slice(0, 5));
-      } catch (e: any) {
-        setError(e.message || 'Failed to load dashboard data');
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadDashboard();
+    Promise.all([getSupervisors(), getRuns()])
+      .then(([s, r]) => { setSupervisors(s); setRuns(r); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
+
+  const activeRuns = runs.filter((r: any) => r.status === 'active').length;
+  const completedRuns = runs.filter((r: any) => r.status === 'completed').length;
+
+  if (loading) return <p className="text-gray-500 py-8">Loading...</p>;
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <div className="space-x-4">
-          <Link href="/supervisors" className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-50">New Supervisor</Link>
-          <Link href="/runs" className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">New Run</Link>
-        </div>
-      </div>
-      
-      {error && <div className="text-red-600 mb-4">{error}</div>}
-      
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-        <div className="bg-white border border-gray-200 p-4 rounded-lg">
-          <div className="text-sm text-gray-500">Supervisors</div>
-          <div className="text-2xl font-bold">{loading ? 'Loading...' : stats.totalSupervisors}</div>
-        </div>
-        <div className="bg-white border border-gray-200 p-4 rounded-lg">
-          <div className="text-sm text-gray-500">Active Runs</div>
-          <div className="text-2xl font-bold">{loading ? 'Loading...' : stats.activeRuns}</div>
-        </div>
-        <div className="bg-white border border-gray-200 p-4 rounded-lg">
-          <div className="text-sm text-gray-500">Completed Runs</div>
-          <div className="text-2xl font-bold">{loading ? 'Loading...' : stats.completedRuns}</div>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-semibold text-gray-900">Dashboard</h1>
+        <div className="flex gap-3">
+          <Link href="/supervisors" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700">
+            New Supervisor
+          </Link>
+          <Link href="/runs" className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50">
+            New Run
+          </Link>
         </div>
       </div>
 
+      <div className="grid grid-cols-3 gap-4 mb-8">
+        {[
+          { label: 'Supervisors', value: supervisors.length },
+          { label: 'Active Runs', value: activeRuns },
+          { label: 'Completed Runs', value: completedRuns },
+        ].map((stat) => (
+          <div key={stat.label} className="bg-white border border-gray-200 rounded-lg p-5">
+            <p className="text-sm text-gray-500">{stat.label}</p>
+            <p className="text-3xl font-semibold text-gray-900 mt-1">{stat.value}</p>
+          </div>
+        ))}
+      </div>
+
       <div className="bg-white border border-gray-200 rounded-lg">
-        <div className="p-4 border-b border-gray-200 font-semibold text-gray-800">Recent Runs</div>
-        {loading ? (
-          <div className="p-4 text-gray-500">Loading...</div>
-        ) : recentRuns.length === 0 ? (
-          <div className="p-4 text-gray-500">No runs found.</div>
+        <div className="px-5 py-4 border-b border-gray-200">
+          <h2 className="text-base font-semibold text-gray-900">Recent Runs</h2>
+        </div>
+        {runs.length === 0 ? (
+          <p className="px-5 py-8 text-sm text-gray-500">No runs yet. Start one from the Runs page.</p>
         ) : (
-          <table className="w-full text-left border-collapse">
+          <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-50 text-sm text-gray-600">
-                <th className="p-3 border-b border-gray-200 font-medium">Order ID</th>
-                <th className="p-3 border-b border-gray-200 font-medium">Status</th>
-                <th className="p-3 border-b border-gray-200 font-medium">Created</th>
-                <th className="p-3 border-b border-gray-200 font-medium">Action</th>
+              <tr className="text-left text-gray-500 border-b border-gray-100">
+                <th className="px-5 py-3 font-medium">Order ID</th>
+                <th className="px-5 py-3 font-medium">Status</th>
+                <th className="px-5 py-3 font-medium">Created</th>
+                <th className="px-5 py-3 font-medium"></th>
               </tr>
             </thead>
             <tbody>
-              {recentRuns.map((run) => (
-                <tr key={run.id} className="border-b border-gray-200 hover:bg-gray-50 transition-colors duration-150">
-                  <td className="p-3 text-gray-900">{run.order_id}</td>
-                  <td className="p-3">{getStatusBadge(run.status)}</td>
-                  <td className="p-3 text-gray-600 text-sm">{new Date(run.created_at).toLocaleString()}</td>
-                  <td className="p-3">
+              {runs.slice(0, 10).map((run: any) => (
+                <tr key={run.id} className="border-b border-gray-50 hover:bg-gray-50">
+                  <td className="px-5 py-3 font-medium text-gray-900">{run.order_id}</td>
+                  <td className="px-5 py-3">
+                    <StatusBadge status={run.status} />
+                  </td>
+                  <td className="px-5 py-3 text-gray-500">{new Date(run.created_at).toLocaleString()}</td>
+                  <td className="px-5 py-3">
                     <Link href={`/runs/${run.id}`} className="text-blue-600 hover:underline">View</Link>
                   </td>
                 </tr>
@@ -107,5 +82,19 @@ export default function Dashboard() {
         )}
       </div>
     </div>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const colors: Record<string, string> = {
+    active: 'bg-green-50 text-green-700',
+    paused: 'bg-yellow-50 text-yellow-700',
+    completed: 'bg-blue-50 text-blue-700',
+    terminated: 'bg-red-50 text-red-700',
+  };
+  return (
+    <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded-full ${colors[status] || 'bg-gray-100 text-gray-600'}`}>
+      {status}
+    </span>
   );
 }
