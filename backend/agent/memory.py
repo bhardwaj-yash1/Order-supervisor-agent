@@ -42,8 +42,11 @@ You must return a valid JSON object matching this schema:
 
 IMPORTANT:
 - `tool_calls` MUST be an array, even if empty ([]).
+- If a `delivered` event is received, the order is COMPLETE. You MUST call `close_workflow` with a summary.
+- If a terminal event like `refund_requested` has been fully handled, call `close_workflow`.
 - If the workflow is completely finished and no further actions are needed, use the `close_workflow` tool.
-- If you are waiting for more events or just resting, use the `schedule_wakeup` tool to sleep for a specified duration instead of closing.
+- If you are waiting for more events or just monitoring, use the `schedule_wakeup` tool to sleep for a specified duration.
+- Always call at least one tool per run. If nothing else, call `schedule_wakeup` or `create_internal_note`.
 """
     user_prompt = f"""WAKE-UP TRIGGER: {trigger}
 

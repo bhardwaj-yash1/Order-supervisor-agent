@@ -1,7 +1,11 @@
 import json
 
 def classify_event(client, model: str, event_type: str, event_data: dict, memory_summary: str, aggressiveness: str) -> dict:
-    always_wake = {"payment_failed", "refund_requested", "customer_message_received"}
+    always_wake = {
+        "payment_failed", "refund_requested", "customer_message_received",
+        "delivered", "payment_confirmed", "shipment_delayed",
+        "order_created", "shipment_created"
+    }
     
     if event_type in always_wake:
         return {"should_wake": True, "reason": f"{event_type} is an ALWAYS_WAKE event"}
