@@ -142,11 +142,3 @@ class OrderSupervisorWorkflow:
         if result.get("status_change") == "completed":
             self.status = "completed"
 
-        # Persist updated status and sleep_until to database
-        from datetime import datetime
-        new_sleep_until = datetime.utcnow() + timedelta(minutes=max(self.sleep_minutes, 1))
-        await workflow.execute_activity(
-            persist_run_status_activity,
-            args=[self.run_id, self.status, new_sleep_until.isoformat()],
-            start_to_close_timeout=timedelta(seconds=30)
-        )
