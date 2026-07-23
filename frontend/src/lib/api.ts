@@ -35,3 +35,11 @@ export const terminateRun = (runId: string) => fetchAPI(`/runs/${runId}/terminat
 
 // Event APIs
 export const injectEvent = (runId: string, type: string, data?: any) => fetchAPI(`/runs/${runId}/events`, { method: 'POST', body: JSON.stringify({ type, data: data || {} }) });
+
+// Utility: backend returns UTC datetimes without "Z" suffix,
+// so JS treats them as local time. Append "Z" to fix.
+export function formatTime(dateStr: string | null | undefined): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr.endsWith('Z') ? dateStr : dateStr + 'Z');
+  return d.toLocaleString();
+}

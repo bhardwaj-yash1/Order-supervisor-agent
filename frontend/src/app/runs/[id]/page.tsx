@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef, use } from 'react';
-import { getRun, getSupervisor, addInstruction, pauseRun, resumeRun, terminateRun, injectEvent } from '@/lib/api';
+import { getRun, getSupervisor, addInstruction, pauseRun, resumeRun, terminateRun, injectEvent, formatTime } from '@/lib/api';
 
 const EVENT_TYPES = [
   'order_created', 'payment_confirmed', 'payment_failed',
@@ -114,9 +114,9 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
         </div>
         <div className="flex items-center gap-4 text-sm text-gray-500">
           {supervisor && <span>Supervisor: {supervisor.name}</span>}
-          <span>Created: {new Date(run.created_at).toLocaleString()}</span>
+          <span>Created: {formatTime(run.created_at)}</span>
           {run.sleep_until && isLive && (
-            <span>Sleeping until: {new Date(run.sleep_until).toLocaleString()}</span>
+            <span>Sleeping until: {formatTime(run.sleep_until)}</span>
           )}
         </div>
       </div>
@@ -140,7 +140,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
                     <div key={entry.id || i} className="px-5 py-3">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-xs text-gray-400">
-                          {new Date(entry.timestamp).toLocaleTimeString()}
+                          {formatTime(entry.timestamp)}
                         </span>
                         <TypeBadge type={entry.entry_type} />
                       </div>

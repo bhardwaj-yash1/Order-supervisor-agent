@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { getSupervisors, getRuns } from '@/lib/api';
+import { getSupervisors, getRuns, formatTime } from '@/lib/api';
 
 export default function DashboardPage() {
   const [supervisors, setSupervisors] = useState<any[]>([]);
@@ -71,7 +71,7 @@ export default function DashboardPage() {
                   <td className="px-5 py-3">
                     <StatusBadge status={run.status} />
                   </td>
-                  <td className="px-5 py-3 text-gray-500">{new Date(run.created_at).toLocaleString()}</td>
+                  <td className="px-5 py-3 text-gray-500">{formatTime(run.created_at)}</td>
                   <td className="px-5 py-3">
                     <Link href={`/runs/${run.id}`} className="text-blue-600 hover:underline">View</Link>
                   </td>
