@@ -13,8 +13,8 @@ A long-running AI supervisor POC that oversees e-commerce orders from creation t
                             ┌──────────┴───────┐
                             │                  │
                      ┌──────▼─────┐    ┌───────▼──────┐
-                     │   SQLite   │    │   Groq API   │
-                     │   (local)  │    │ (Llama 3 70B)│
+                     │ PostgreSQL │    │   Groq API   │
+                     │  Database  │    │ (Llama 3 70B)│
                      └────────────┘    └──────────────┘
 ```
 
@@ -23,25 +23,26 @@ A long-running AI supervisor POC that oversees e-commerce orders from creation t
 - **Temporal Workflow**: One workflow per order. Handles sleep/wake lifecycle, signal handling, and event-driven agent execution.
 - **Agent Runtime**: ReAct-style LLM agent (Groq Llama 3.3 70B) that reasons about events, calls tools, and manages memory.
 - **Classifier**: Lightweight LLM (Llama 3.1 8B) that determines if incoming events should immediately wake the agent.
-- **6 Simulated Tools**: send_customer_message, create_internal_note, escalate_issue, mark_order_for_review, schedule_wakeup, close_workflow.
+- **9 Simulated Tools**: send_customer_message, create_internal_note, escalate_issue, mark_order_for_review, schedule_wakeup, close_workflow, message_fulfillment_team, message_payments_team, message_logistics_team.
 - **Memory & Timeline**: Rolling memory summary with timeline compaction to keep LLM context bounded.
 - **Next.js UI**: Dashboard for supervisor config, run management, event injection, and timeline inspection.
 
 ## Tech Stack
 
-| Layer          | Technology                          |
-|----------------|-------------------------------------|
-| Frontend       | Next.js 14 (App Router) + Tailwind  |
-| Backend        | Python FastAPI                      |
-| Orchestration  | Temporal Python SDK                 |
-| Database       | SQLite (via SQLAlchemy)             |
-| LLM (Agent)    | Groq API → Llama 3.3 70B Versatile |
-| LLM (Classifier)| Groq API → Llama 3.1 8B Instant  |
+| Layer            | Technology                          |
+|------------------|-------------------------------------|
+| Frontend         | Next.js (App Router) + Tailwind     |
+| Backend          | Python FastAPI                      |
+| Orchestration    | Temporal Python SDK                 |
+| Database         | PostgreSQL (via SQLAlchemy)         |
+| LLM (Agent)      | Groq API → Llama 3.3 70B Versatile |
+| LLM (Classifier) | Groq API → Llama 3.1 8B Instant    |
 
 ## Prerequisites
 
 - Python 3.11+
 - Node.js 18+
+- PostgreSQL 15+ (running locally)
 - [Temporal CLI](https://docs.temporal.io/cli) (`winget install Temporal.TemporalCLI`)
 - [Groq API Key](https://console.groq.com) (free tier)
 
@@ -57,15 +58,28 @@ pip install -r requirements.txt
 cd frontend && npm install && cd ..
 ```
 
-### 2. Configure Environment
+### 2. Set Up PostgreSQL
+
+```bash
+# Create the database
+psql -U postgres -c "CREATE DATABASE order_supervisor;"
+```
+
+### 3. Configure Environment
 
 ```bash
 # Copy and edit .env
 cp .env.example .env
-# Add your Groq API key to .env
+# Add your Groq API key and database URL to .env
 ```
 
-### 3. Start Services (3 terminals)
+`.env` file:
+```
+GROQ_API_KEY=your_groq_api_key_here
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/order_supervisor
+```
+
+### 4. Start Services (3 terminals)
 
 **Terminal 1 — Temporal Server:**
 ```bash
@@ -82,7 +96,7 @@ python -m backend.main
 cd frontend && npm run dev
 ```
 
-### 4. Open Browser
+### 5. Open Browser
 
 - **App**: http://localhost:3000
 - **Temporal UI**: http://localhost:8233
@@ -94,7 +108,7 @@ cd frontend && npm run dev
 Navigate to `/supervisors` and create a supervisor template:
 - Name: "E-commerce Order Supervisor"
 - Instruction: "You are an AI order supervisor. Monitor the lifecycle of e-commerce orders. Notify customers of important updates. Escalate issues that need human attention."
-- Select all 6 tools
+- Select all 9 tools
 - Set wake-up interval (e.g., 60 minutes)
 - Choose aggressiveness: medium
 
@@ -155,8 +169,8 @@ After completion, the run shows:
 order-supervisor/
 ├── backend/
 │   ├── main.py              # FastAPI app + Temporal worker startup
-│   ├── config.py             # Settings (Groq key, Temporal addr)
-│   ├── database.py           # SQLAlchemy async + sync engines
+│   ├── config.py             # Settings (Groq key, DB URL, Temporal addr)
+│   ├── database.py           # SQLAlchemy async + sync engines (PostgreSQL)
 │   ├── models.py             # ORM models
 │   ├── schemas.py            # Pydantic schemas
 │   ├── api/                  # FastAPI route handlers
@@ -169,5 +183,6 @@ order-supervisor/
 │       └── lib/              # API client
 ├── requirements.txt
 ├── .env.example
+├── ARCHITECTURE.md
 └── README.md
 ```
