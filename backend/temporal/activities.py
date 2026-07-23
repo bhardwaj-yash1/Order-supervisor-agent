@@ -145,13 +145,17 @@ def generate_final_summary_activity(run_id: str, order_context: dict) -> dict:
         session.close()
 
 @activity.defn
-def persist_run_status_activity(run_id: str, status: str, sleep_until: datetime) -> None:
+def persist_run_status_activity(run_id: str, status: str, sleep_until_iso: str) -> None:
     session = get_sync_session()
     try:
         run = session.query(Run).filter_by(id=run_id).first()
         if run:
             run.status = status
-            run.sleep_until = sleep_until
+            try:
+                run.sleep_until = datetime.fromisoformat(sleep_until_iso)
+            except (ValueError, TypeError):
+                run.sleep_until = datetime.utcnow() + timedelta(minutes=30)
             session.commit()
     finally:
         session.close()
+
